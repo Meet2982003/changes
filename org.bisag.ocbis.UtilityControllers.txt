@@ -1,0 +1,100 @@
+package org.bisag.ocbis.controllers;
+
+import org.bisag.ocbis.models.ContactEntity;
+import org.bisag.ocbis.payloads.request.EncryptedRequest;
+import org.bisag.ocbis.payloads.request.Report;
+import org.bisag.ocbis.payloads.response.EncryptedResponse;
+import org.bisag.ocbis.repository.ContactRepo;
+import org.bisag.ocbis.services.ContactService;
+import org.bisag.ocbis.utils.Json;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import io.micrometer.common.util.StringUtils;
+
+import jakarta.validation.Valid;
+
+@RestController
+@CrossOrigin("*")
+@RequestMapping("/utilities")
+public class UtilitiesController {
+
+    @Autowired
+    private ContactService contactService;
+
+    @Autowired
+    private ContactRepo contactRepo;
+
+    // Manage Contact
+    // 1 - Save Contact
+    @PostMapping("/saveContact")
+    public ResponseEntity<EncryptedResponse> saveContact(
+            @Valid @RequestBody EncryptedRequest req) {
+        try {
+            var body = req.bodyAs(ContactEntity.class);
+            contactService.saveContact(body);
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(new EncryptedResponse("Contact created successfully"));
+        } catch (DataIntegrityViolationException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new EncryptedResponse("Contact already exists."));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new EncryptedResponse("An error occurred."));
+        }
+    }
+
+    // 2 - View All Contacts
+    @PostMapping("/viewAllContacts")
+    public EncryptedResponse getAllContacts(@RequestBody EncryptedRequest req) throws Exception {
+        var reportReq = Json.deserialize(Report.class, req.getData());
+        var pageable = PageRequest.of(reportReq.pagination().page(), reportReq.pagination().size());
+        var searchQuery = StringUtils.isBlank(reportReq.search()) ? null : "%" + reportReq.search() + "%";
+
+        String contactName = (String) reportReq.custom().getOrDefault("contactName", null);
+        String designation = (String) reportReq.custom().getOrDefault("designation", null);
+        String ipPhone = (String) reportReq.custom().getOrDefault("ipPhone", null);
+
+        var result = contactRepo.findByFilters(searchQuery, contactName, designation, ipPhone, pageable);
+        return new EncryptedResponse(result);
+    }
+
+    // 3 - Edit Contact
+    @PostMapping(value = "/editContactById")
+    public ResponseEntity<EncryptedResponse> editContact(@RequestBody EncryptedRequest req) {
+        try {
+            var body = Json.deserialize(ContactEntity.class, req.getData());
+            contactService.updateContact(body, body.getContactId());
+            return ResponseEntity.ok(new EncryptedResponse("Updated contact details"));
+        } catch (DataIntegrityViolationException ex) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new EncryptedResponse("Contact already exists."));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new EncryptedResponse("An error occurred."));
+        }
+    }
+
+    // 4 - Delete Contact
+    @PostMapping("/deleteContactById")
+    public ResponseEntity<EncryptedResponse> deleteContact(@RequestBody EncryptedRequest req) {
+        try {
+            var body = Json.deserialize(ContactEntity.class, req.getData());
+            contactService.deleteContact(body.getContactId());
+            return ResponseEntity.ok(new EncryptedResponse("Contact deleted successfully"));
+        } catch (DataIntegrityViolationException ex) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new EncryptedResponse("Contact doesn't exist."));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new EncryptedResponse("An error occurred."));
+        }
+    }
+}
