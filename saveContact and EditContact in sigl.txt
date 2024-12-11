@@ -1,0 +1,29 @@
+//saveContact and EditContact in sigle api
+
+@PostMapping("/saveOrUpdateContact")
+public ResponseEntity<EncryptedResponse> saveOrUpdateContact(
+    @Valid @RequestBody EncryptedRequest req) throws Exception {
+
+  try {
+    // Deserialize the request body into a ContactEntity object
+    var body = req.bodyAs(ContactEntity.class);
+
+    if (body.getContactId() != null) {
+      // If contactId is present, perform update operation
+      contactService.updateContact(body, body.getContactId());
+      return ResponseEntity.status(HttpStatus.OK)
+          .body(new EncryptedResponse("Contact updated successfully."));
+    } else {
+      // If contactId is absent, perform save operation
+      contactService.saveContact(body);
+      return ResponseEntity.status(HttpStatus.CREATED)
+          .body(new EncryptedResponse("Contact created successfully."));
+    }
+  } catch (DataIntegrityViolationException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(new EncryptedResponse("Contact already exists."));
+  } catch (Exception ex) {
+    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .body(new EncryptedResponse("An error occurred."));
+  }
+}

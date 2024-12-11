@@ -1,0 +1,25 @@
+@PostMapping("/saveOrUpdateFaculty")
+public ResponseEntity<EncryptedResponse> saveOrUpdateFaculty(@RequestBody EncryptedRequest req) throws Exception {
+  try {
+    // Deserialize the request body into a FacultyEntity object
+    var faculty = req.bodyAs(FacultyEntity.class);
+
+    if (faculty.getFacultyId() != null) {
+      // If facultyId is present, perform update operation
+      facultyRepo.save(faculty);
+      return ResponseEntity.status(HttpStatus.OK)
+          .body(new EncryptedResponse("Faculty updated successfully."));
+    } else {
+      // If facultyId is absent, perform save operation
+      facultyService.saveFaculty(faculty);
+      return ResponseEntity.status(HttpStatus.CREATED)
+          .body(new EncryptedResponse("Faculty created successfully."));
+    }
+  } catch (DataIntegrityViolationException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(new EncryptedResponse("Faculty already exists."));
+  } catch (Exception ex) {
+    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .body(new EncryptedResponse("An error occurred."));
+  }
+}
