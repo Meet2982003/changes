@@ -1,0 +1,289 @@
+When the `Role` and `User` entities are in a different package (e.g., `org.bisag.authservice.models`), and the `FacultyEntity` is in another package (e.g., `org.bisag.ocbis.models`), you can seamlessly integrate these entities using proper imports, dependency injection, and module communication. Below is the full implementation:
+
+---
+
+### **Directory Structure**
+Here’s an overview of the package structure:
+```
+src/main/java/org/bisag/
+  ├── authservice/
+  │   ├── models/
+  │   │   ├── Role.java
+  │   │   └── User.java
+  │   └── repositories/
+  │       └── UserRepository.java
+  │
+  ├── ocbis/
+  │   ├── models/
+  │   │   └── FacultyEntity.java
+  │   ├── repositories/
+  │   │   └── FacultyRepository.java
+  │   ├── services/
+  │   │   └── FacultyService.java
+  │   └── controllers/
+  │       └── FacultyController.java
+```
+
+---
+
+### **Entity Configuration**
+
+#### **`FacultyEntity` (in `org.bisag.ocbis.models`)**
+This entity will reference `User` from the `authservice.models` package. You only need to import `User` to establish the `@ManyToOne` relationship.
+
+```java
+package org.bisag.ocbis.models;
+
+import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
+import org.bisag.authservice.models.User;
+
+@Entity
+public class FacultyEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long facultyId;
+
+    @NotNull
+    private String facultyName;
+
+    @NotNull
+    private String designation;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user; // Reference to User entity
+
+    // Getters and Setters
+    public Long getFacultyId() { return facultyId; }
+    public void setFacultyId(Long facultyId) { this.facultyId = facultyId; }
+
+    public String getFacultyName() { return facultyName; }
+    public void setFacultyName(String facultyName) { this.facultyName = facultyName; }
+
+    public String getDesignation() { return designation; }
+    public void setDesignation(String designation) { this.designation = designation; }
+
+    public User getUser() { return user; }
+    public void setUser(User user) { this.user = user; }
+}
+```
+
+---
+
+#### **`Role` Entity (in `org.bisag.authservice.models`)**
+Ensure the `Role` entity has a `roleName` for checking permissions.
+
+```java
+package org.bisag.authservice.models;
+
+import jakarta.persistence.*;
+
+@Entity(name = "ocbis_roles")
+public class Role {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Integer roleId;
+
+    @Column(nullable = false, unique = true)
+    private String roleName;
+
+    // Getters and Setters
+    public Integer getRoleId() { return roleId; }
+    public void setRoleId(Integer roleId) { this.roleId = roleId; }
+
+    public String getRoleName() { return roleName; }
+    public void setRoleName(String roleName) { this.roleName = roleName; }
+}
+```
+
+#### **`User` Entity (in `org.bisag.authservice.models`)**
+The `User` entity includes a `roles` field for managing permissions.
+
+```java
+package org.bisag.authservice.models;
+
+import jakarta.persistence.*;
+import java.util.HashSet;
+import java.util.Set;
+
+@Entity
+@Table(name = "ocbis_users", uniqueConstraints = { @UniqueConstraint(columnNames = "email") })
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String email;
+    private String password;
+    private String username;
+
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(
+        name = "ocbis_user_role_mapping",
+        joinColumns = @JoinColumn(name = "id"),
+        inverseJoinColumns = @JoinColumn(name = "role_id")
+    )
+    private Set<Role> roles = new HashSet<>();
+
+    // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getUsername() { return username; }
+    public void setUsername(String username) { this.username = username; }
+
+    public Set<Role> getRoles() { return roles; }
+    public void setRoles(Set<Role> roles) { this.roles = roles; }
+}
+```
+
+---
+
+### **Repositories**
+
+#### **`FacultyRepository` (in `org.bisag.ocbis.repositories`)**
+```java
+package org.bisag.ocbis.repositories;
+
+import org.bisag.ocbis.models.FacultyEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface FacultyRepository extends JpaRepository<FacultyEntity, Long> {
+}
+```
+
+#### **`UserRepository` (in `org.bisag.authservice.repositories`)**
+```java
+package org.bisag.authservice.repositories;
+
+import org.bisag.authservice.models.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+}
+```
+
+---
+
+### **Service Layer**
+
+#### **`FacultyService`**
+```java
+package org.bisag.ocbis.services;
+
+import org.bisag.ocbis.models.FacultyEntity;
+import org.bisag.ocbis.repositories.FacultyRepository;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class FacultyService {
+
+    private final FacultyRepository facultyRepository;
+
+    public FacultyService(FacultyRepository facultyRepository) {
+        this.facultyRepository = facultyRepository;
+    }
+
+    public FacultyEntity addFaculty(FacultyEntity faculty) {
+        return facultyRepository.save(faculty);
+    }
+
+    public void deleteFaculty(Long id) {
+        facultyRepository.deleteById(id);
+    }
+
+    public List<FacultyEntity> getAllFaculties() {
+        return facultyRepository.findAll();
+    }
+
+    public boolean hasAdminRole() {
+        UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        return userDetails.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+    }
+}
+```
+
+---
+
+### **Controller Layer**
+
+#### **`FacultyController`**
+```java
+package org.bisag.ocbis.controllers;
+
+import org.bisag.ocbis.models.FacultyEntity;
+import org.bisag.ocbis.services.FacultyService;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/faculties")
+public class FacultyController {
+
+    private final FacultyService facultyService;
+
+    public FacultyController(FacultyService facultyService) {
+        this.facultyService = facultyService;
+    }
+
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<FacultyEntity> addFaculty(@RequestBody FacultyEntity faculty) {
+        FacultyEntity savedFaculty = facultyService.addFaculty(faculty);
+        return ResponseEntity.status(HttpStatus.CREATED).body(savedFaculty);
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteFaculty(@PathVariable Long id) {
+        facultyService.deleteFaculty(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping
+    public ResponseEntity<List<FacultyEntity>> getAllFaculties() {
+        List<FacultyEntity> faculties = facultyService.getAllFaculties();
+        return ResponseEntity.ok(faculties);
+    }
+}
+```
+
+---
+
+### **Security Configuration**
+
+#### **`SecurityConfig`**
+```java
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.csrf().disable()
+            .authorizeRequests()
+            .antMatchers("/faculties/**").hasRole("ADMIN")
+            .anyRequest().authenticated()
+            .and()
+            .formLogin();
+    }
+}
+```
+
+---
+
+This setup ensures seamless integration between `FacultyEntity`, `User`, and `Role`, even when they are in different packages.
