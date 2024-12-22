@@ -1,0 +1,116 @@
+To implement the logic of handling multiple files within your existing code structure, the main changes need to involve:
+
+1. **Looping through multiple documents** if there are more than one file.
+2. **Creating and saving a new `ManageIGCdocs` instance** for each document.
+3. **Ensuring the files are saved with unique names** by appending an index or UUID.
+4. **Handling errors and rolling back the transaction** if any failure occurs.
+
+Here's the updated code based on your request:
+
+```java
+@Transactional
+@Override
+public List<EncryptedResponse> saveIgcDocs(ManageIGCdocs docs) throws Exception {
+    UUID uuid = UUID.randomUUID();
+    List<EncryptedResponse> responses = new ArrayList<>();
+
+    // Assuming docs.getUploadDocuments() returns a list of base64 encoded documents (e.g., List<String>)
+    List<String> fileBase64Strings = docs.getUploadDocuments(); // Replace with actual method to get files
+
+    for (int i = 0; i < fileBase64Strings.size(); i++) {
+        String base64File = fileBase64Strings.get(i);
+        byte[] fileBytes = Base64.getDecoder().decode(base64File.split(",")[1]); // Decode the file content
+        FileValidator.validateFileSize(fileBytes, 5); // Validate the file size
+
+        // Generate unique file name for each file (appending index to UUID for uniqueness)
+        String filePath = fileServerPath + "/documents/" + uuid + "_" + i + ".pdf";
+        File file = new File(filePath);
+
+        // Save the file to the server
+        try (OutputStream stream = FileUtils.openOutputStream(file)) {
+            stream.write(fileBytes);
+        } catch (IOException e) {
+            throw new RuntimeException("Error saving file: " + e.getMessage(), e); // Rollback on error
+        }
+
+        // Create and save the document record to the database
+        try {
+            ManageIGCdocs newDoc = new ManageIGCdocs();
+            newDoc.setTitle(docs.getTitle());
+            newDoc.setAccess(docs.getAccess());
+            newDoc.setUploadedDate(ZonedDateTime.now());
+            newDoc.setFileName(docs.getFileName());
+            newDoc.setDocumentType(docs.getDocumentType());
+            newDoc.setUploadDocument(uuid.toString() + "_" + i); // Store the unique file identifier
+
+            manageIGCdocsRepo.save(newDoc); // Save the document metadata
+
+            // Create the response for the saved document
+            EncryptedResponse response = new EncryptedResponse("Document " + (i + 1) + " saved successfully");
+            responses.add(response); // Add response for each document
+
+        } catch (Exception e) {
+            throw new RuntimeException("Error saving document metadata: " + e.getMessage(), e); // Rollback if error saving to DB
+        }
+    }
+
+    return responses; // Return the list of responses for each saved file
+}
+```
+
+### Explanation of Changes:
+
+1. **Handling Multiple Documents**:
+   - The method now processes each document (file) from `docs.getUploadDocuments()` list, assuming it's a list of base64 encoded strings.
+   - For each document, the logic of decoding, validating the size, saving the file, and storing the metadata in the database is repeated.
+
+2. **File Name Uniqueness**:
+   - Each file is given a unique file name using `uuid + "_" + i`. This ensures that even if multiple files are uploaded at the same time, they won't overwrite each other.
+
+3. **Transaction Handling**:
+   - The `@Transactional` annotation ensures that all operations (file saving and database record saving) are part of a single transaction.
+   - If any error occurs while saving the file or the metadata (e.g., an exception is thrown), the transaction will be rolled back automatically, ensuring data consistency.
+
+4. **Encrypted Response for Each File**:
+   - An `EncryptedResponse` object is created for each file that is successfully saved. The response includes the success message along with the index of the document.
+   - A list of responses (`List<EncryptedResponse>`) is returned, one for each file.
+
+5. **Error Handling**:
+   - If an exception occurs during file saving or document metadata saving, a `RuntimeException` is thrown, which will trigger a rollback due to the `@Transactional` annotation.
+
+### Notes:
+- **`docs.getUploadDocuments()`** should return a list of base64-encoded file data (e.g., `List<String>`).
+- The `manageIGCdocsRepo.save(newDoc)` is the database operation that saves the metadata for each document. Ensure that the repository is properly configured to handle the `ManageIGCdocs` entity.
+- The `FileValidator.validateFileSize()` method validates the size for each file, making sure it doesn't exceed 5MB.
+
+With these updates, your code can now handle multiple file uploads and store them with unique identifiers.
+
+//controller
+
+@PostMapping("/saveIGCdocs")
+public ResponseEntity<EncryptedResponse> saveIGCdocs(@RequestBody EncryptedRequest req, HttpServletRequest request) throws Exception {
+    System.out.println("called saveIGCdocs");
+
+    try {
+        // Extract ManageIGCdocs object from the request body
+        var docs = req.bodyAs(ManageIGCdocs.class);
+        System.out.println("controller: " + docs.getTitle());
+
+        // Call the service method to save the documents
+        List<EncryptedResponse> responses = manageIGCdocsService.saveIgcDocs(docs);
+
+        // If documents were successfully saved, return a response
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(new EncryptedResponse("Data saved successfully."));
+
+    } catch (DataIntegrityViolationException e) {
+        System.out.println("data exception: " + e.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(new EncryptedResponse("Same data already exists."));
+
+    } catch (Exception e) {
+        System.out.println("exception: " + e.getMessage());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body(new EncryptedResponse("An error occurred."));
+    }
+}
