@@ -1,0 +1,66 @@
+UPDATE MULTIPLE FILE HANDELING API
+
+
+@Override
+public EncryptedResponse updateIgcDocs(Long docsId, ManageIGCdocs docs, List<String> removedFileIds) throws Exception {
+    try {
+        // Fetch the existing document from the repository
+        ManageIGCdocs existingDoc = manageIGCdocsRepo.findById(docsId)
+                .orElseThrow(() -> new Exception("Document not found"));
+
+        // Update the metadata
+        existingDoc.setTitle(docs.getTitle());
+        existingDoc.setAccess(docs.getAccess());
+        existingDoc.setUploadedDate(docs.getUploadedDate());
+        existingDoc.setFileNames(docs.getFileNames());
+        existingDoc.setDocumentType(docs.getDocumentType());
+
+        List<String> updatedFileIds = new ArrayList<>();
+
+        // Process new uploaded documents if provided
+        if (docs.getUploadDocuments() != null && !docs.getUploadDocuments().isEmpty()) {
+            for (String uploadDocument : docs.getUploadDocuments()) {
+                UUID uuid = UUID.randomUUID();
+                String pdfPath = fileServerPath + "/documents/" + uuid + ".pdf";
+                File file = new File(pdfPath);
+                byte[] fileBytes = Base64.getDecoder().decode(uploadDocument.split(",")[1]);
+
+                // Validate file size (example: max 5MB)
+                FileValidator.validateFileSize(fileBytes, 5);
+
+                // Write file to the server
+                try (OutputStream stream = FileUtils.openOutputStream(file)) {
+                    stream.write(fileBytes);
+                    updatedFileIds.add(uuid.toString()); // Add new file ID to the list
+                }
+            }
+        }
+
+        // Handle file deletion
+        List<String> existingFileIds = existingDoc.getUploadDocuments();
+        if (removedFileIds != null && !removedFileIds.isEmpty()) {
+            for (String fileId : removedFileIds) {
+                // Remove the file from the server
+                String filePath = fileServerPath + "/documents/" + fileId + ".pdf";
+                File file = new File(filePath);
+                if (file.exists() && file.delete()) {
+                    existingFileIds.remove(fileId); // Remove file ID from the list
+                }
+            }
+        }
+
+        // Merge existing file IDs with newly uploaded file IDs
+        List<String> allFileIds = new ArrayList<>(existingFileIds);
+        allFileIds.addAll(updatedFileIds);
+
+        // Set the updated file list
+        existingDoc.setUploadDocuments(allFileIds);
+
+        // Save the updated document back to the repository
+        manageIGCdocsRepo.save(existingDoc);
+
+        return new EncryptedResponse("Document updated successfully");
+    } catch (Exception e) {
+        return new EncryptedResponse("Error updating Document: " + e.getMessage());
+    }
+}
