@@ -1,0 +1,163 @@
+### **How to Store Multiple Files in a Database in Spring Boot (Without Creating Separate Columns)**  
+You **should not** create **separate columns** for each file (e.g., `file1`, `file2`, ..., `file28`). Instead, the correct approach is to **store each file as a separate row** in a `files` table and link them to the corresponding form using a **foreign key**.
+
+---
+
+## **1️⃣ Database Schema Design**
+### **`forms` Table**
+This stores form-related data:
+```java
+@Entity
+@Table(name = "forms")
+public class Form {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String formName; // Example field
+
+    @OneToMany(mappedBy = "form", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<FileEntity> files = new ArrayList<>();
+}
+```
+- Each form can have **multiple files** linked to it.
+
+### **`files` Table**
+This stores each uploaded file **as a separate row**:
+```java
+@Entity
+@Table(name = "files")
+public class FileEntity {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String fileName;
+    private String filePath; // Store the file path instead of creating multiple columns
+
+    @ManyToOne
+    @JoinColumn(name = "form_id", nullable = false)
+    private Form form;
+}
+```
+- Instead of **28 columns**, this approach stores **each file as a row** in the `files` table.
+- The `form_id` column links the file to its **corresponding form**.
+
+---
+
+## **2️⃣ Upload Multiple Files and Store in Database**
+### **Controller**
+```java
+@RestController
+@RequestMapping("/files")
+public class FileController {
+
+    @Autowired
+    private FileService fileService;
+
+    @PostMapping("/upload/{formId}")
+    public ResponseEntity<String> uploadFiles(
+            @PathVariable Long formId,
+            @RequestParam("files") List<MultipartFile> files) {
+        fileService.uploadFiles(formId, files);
+        return ResponseEntity.ok("Files uploaded successfully.");
+    }
+}
+```
+- Accepts multiple files and **sends them to the service**.
+
+---
+
+### **Service**
+```java
+@Service
+public class FileService {
+
+    @Autowired
+    private FileRepository fileRepository;
+
+    @Autowired
+    private FormRepository formRepository;
+
+    private final String uploadDir = "C:/uploads/"; // Change as per your system
+
+    public void uploadFiles(Long formId, List<MultipartFile> files) {
+        Form form = formRepository.findById(formId)
+                .orElseThrow(() -> new RuntimeException("Form not found"));
+
+        List<FileEntity> fileEntities = new ArrayList<>();
+
+        for (MultipartFile file : files) {
+            try {
+                // Save file to storage
+                String filePath = uploadDir + file.getOriginalFilename();
+                file.transferTo(new File(filePath));
+
+                // Save file details to database
+                FileEntity fileEntity = new FileEntity();
+                fileEntity.setFileName(file.getOriginalFilename());
+                fileEntity.setFilePath(filePath);
+                fileEntity.setForm(form);
+                fileEntities.add(fileEntity);
+            } catch (IOException e) {
+                throw new RuntimeException("File upload failed: " + file.getOriginalFilename(), e);
+            }
+        }
+
+        fileRepository.saveAll(fileEntities);
+    }
+}
+```
+- **Stores files in a directory** and **stores metadata in the database**.
+- **Links files to the form** using `form_id`.
+
+---
+
+## **3️⃣ Retrieve Files for a Specific Form**
+### **Controller**
+```java
+@GetMapping("/form/{formId}")
+public ResponseEntity<List<FileEntity>> getFilesByForm(@PathVariable Long formId) {
+    List<FileEntity> files = fileService.getFilesByFormId(formId);
+    return ResponseEntity.ok(files);
+}
+```
+### **Service**
+```java
+public List<FileEntity> getFilesByFormId(Long formId) {
+    return fileRepository.findByFormId(formId);
+}
+```
+### **Repository**
+```java
+public interface FileRepository extends JpaRepository<FileEntity, Long> {
+    List<FileEntity> findByFormId(Long formId);
+}
+```
+- This retrieves **all files** related to a given form.
+
+---
+
+## **4️⃣ How Data Will Be Stored in the Database**
+Instead of **28 separate columns**, the database will store files **like this:**
+
+### **`forms` Table**
+| id | form_name  |
+|----|-----------|
+| 1  | Form A    |
+| 2  | Form B    |
+
+### **`files` Table**
+| id | file_name       | file_path          | form_id |
+|----|---------------|------------------|--------|
+| 1  | doc1.pdf      | C:/uploads/doc1.pdf  | 1      |
+| 2  | image1.png    | C:/uploads/image1.png  | 1      |
+| 3  | report.xlsx   | C:/uploads/report.xlsx | 2      |
+| 4  | doc2.pdf      | C:/uploads/doc2.pdf  | 2      |
+
+✅ This makes the database **flexible** and **scalable** for any number of files.
+
+---
+
+## **Final Answer:**
+💡 Instead of creating **28 columns**, store **each file as a separate row** in a `files` table with a **foreign key (`form_id`)** linking it to the respective form. 🚀
