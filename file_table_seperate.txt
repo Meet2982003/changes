@@ -1,0 +1,108 @@
+Since all three forms contain file uploads (with **two forms having 28 files** and **one form having 22 files**), and all the files are **the same types**, you can handle this situation efficiently using a **separate file table** instead of adding multiple columns for each file in your forms table.
+
+---
+
+### **Best Approach: Use a Separate File Table**
+Instead of storing multiple file columns in the forms table, create a **`files` table** where each file is linked to a **form using a foreign key (`form_id`)**.
+
+#### **Schema Design**
+##### **1. Forms Table (Stores Form Details)**
+```sql
+CREATE TABLE forms (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    form_name VARCHAR(100), 
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+- This table stores **form details** and has a **unique ID** for each form.
+
+##### **2. Files Table (Stores Uploaded Files)**
+```sql
+CREATE TABLE files (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    form_id BIGINT NOT NULL,
+    file_name VARCHAR(255),
+    file_path VARCHAR(500),
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (form_id) REFERENCES forms(id) ON DELETE CASCADE
+);
+```
+- Each file is linked to a **form** using `form_id`.
+- Instead of 28 or 22 columns, we dynamically insert multiple rows, **one per file**.
+
+---
+
+### **How It Works?**
+#### **Example Scenario**
+Let’s say:
+- **Form 1 → 28 files**
+- **Form 2 → 28 files**
+- **Form 3 → 22 files**
+
+We insert data like this:
+
+##### **1. Insert Forms**
+```sql
+INSERT INTO forms (form_name) VALUES ('Form 1');
+INSERT INTO forms (form_name) VALUES ('Form 2');
+INSERT INTO forms (form_name) VALUES ('Form 3');
+```
+Assume form IDs are:
+- **Form 1 → ID = 1**
+- **Form 2 → ID = 2**
+- **Form 3 → ID = 3**
+
+##### **2. Insert Files (Each File as a Row)**
+For **Form 1**, insert 28 files:
+```sql
+INSERT INTO files (form_id, file_name, file_path) VALUES (1, 'file1.pdf', '/uploads/form1/file1.pdf');
+INSERT INTO files (form_id, file_name, file_path) VALUES (1, 'file2.pdf', '/uploads/form1/file2.pdf');
+-- Repeat for 28 files
+```
+For **Form 2**, insert 28 files:
+```sql
+INSERT INTO files (form_id, file_name, file_path) VALUES (2, 'file1.pdf', '/uploads/form2/file1.pdf');
+-- Repeat for 28 files
+```
+For **Form 3**, insert 22 files:
+```sql
+INSERT INTO files (form_id, file_name, file_path) VALUES (3, 'file1.pdf', '/uploads/form3/file1.pdf');
+-- Repeat for 22 files
+```
+
+---
+
+### **Retrieving Files for a Form**
+If you want to fetch all files for **Form 1**, run:
+```sql
+SELECT file_name, file_path FROM files WHERE form_id = 1;
+```
+This will return **28 rows**.
+
+---
+
+### **Advantages of This Approach**
+✅ **Scalability** – You can add more files dynamically without changing the database structure.  
+✅ **Flexibility** – You can store **any number of files per form**.  
+✅ **Efficient Queries** – Fetch all files for a form using a simple query.  
+✅ **No Unnecessary Columns** – Avoids creating 28+ columns for file uploads.  
+
+---
+
+### **Alternative: Store Files in JSON (If Limit Is Strict)**
+If the number of files is strictly **28 and 22** (never changing), you could store file paths in a JSON column:
+```sql
+ALTER TABLE forms ADD COLUMN file_paths JSON;
+```
+Example Data:
+```json
+{
+  "files": ["/uploads/form1/file1.pdf", "/uploads/form1/file2.pdf", "..."]
+}
+```
+🔹 **This is less flexible** than using a separate table but works if file numbers are fixed.
+
+---
+
+### **Conclusion**
+The **best approach** is to use a **separate `files` table**, as it allows dynamic file storage without modifying the database structure. Let me know if you need help implementing this in your project! 🚀

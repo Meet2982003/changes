@@ -1,0 +1,194 @@
+Yes! We can simplify the code and make it more **generalized** so that we don’t need to write separate logic for each file type (identity, degree, graduation, etc.). Instead, we can use a **Map** to dynamically handle all file inputs.  
+
+Here’s a clean, reusable, and **generic** implementation:
+
+---
+
+## **1. Model (Entity Layer)**
+```java
+package com.example.demo.model;
+
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.util.Map;
+
+@Entity
+@Getter
+@Setter
+public class Form25D {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+    private String email;
+
+    @ElementCollection
+    @CollectionTable(name = "form25d_files", joinColumns = @JoinColumn(name = "form25d_id"))
+    @MapKeyColumn(name = "file_type")
+    @Column(name = "file_path")
+    private Map<String, String> uploadedFiles; // Stores file paths dynamically
+}
+```
+✅ **This allows storing multiple file types dynamically as a Map.**  
+
+---
+
+## **2. Repository Layer**
+```java
+package com.example.demo.repository;
+
+import com.example.demo.model.Form25D;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface Form25DRepository extends JpaRepository<Form25D, Long> {
+}
+```
+
+---
+
+## **3. Service Layer**
+```java
+package com.example.demo.service;
+
+import com.example.demo.model.Form25D;
+import com.example.demo.repository.Form25DRepository;
+import lombok.RequiredArgsConstructor;
+import org.apache.commons.io.FileUtils;
+import org.springframework.stereotype.Service;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.*;
+
+@Service
+@RequiredArgsConstructor
+public class Form25DService {
+
+    private final Form25DRepository form25DRepository;
+    private final String fileServerPath = "C:/uploads"; // Change as per your storage location
+
+    public Form25D saveForm(Form25D form, Map<String, String> files) throws IOException {
+        Map<String, String> uploadedFilePaths = new HashMap<>();
+
+        for (Map.Entry<String, String> entry : files.entrySet()) {
+            String fileType = entry.getKey(); // e.g., "identity", "degree"
+            String base64File = entry.getValue();
+
+            if (base64File != null && !base64File.isEmpty()) {
+                String savedFilePath = saveFile(base64File);
+                uploadedFilePaths.put(fileType, savedFilePath);
+            }
+        }
+
+        form.setUploadedFiles(uploadedFilePaths);
+        return form25DRepository.save(form);
+    }
+
+    private String saveFile(String base64Data) throws IOException {
+        UUID uuid = UUID.randomUUID();
+        String filePath = fileServerPath + "/documents/" + uuid + ".pdf";
+        File destFile = new File(filePath);
+
+        byte[] fileBytes = Base64.getDecoder().decode(base64Data.split(",")[1]);
+        validateFileSize(fileBytes, 5); // Validate file size
+
+        try (OutputStream stream = FileUtils.openOutputStream(destFile)) {
+            stream.write(fileBytes);
+        }
+
+        return filePath;
+    }
+
+    private void validateFileSize(byte[] fileBytes, int maxSizeMB) {
+        int maxSize = maxSizeMB * 1024 * 1024; // Convert MB to Bytes
+        if (fileBytes.length > maxSize) {
+            throw new RuntimeException("File size exceeds " + maxSizeMB + "MB");
+        }
+    }
+}
+```
+✅ **No need to write multiple if-else conditions! We just loop through all files dynamically using a `Map<String, String>`.**  
+✅ **Any number of files can be handled dynamically (identity, degree, etc.).**  
+
+---
+
+## **4. Controller Layer**
+```java
+package com.example.demo.controller;
+
+import com.example.demo.model.Form25D;
+import com.example.demo.service.Form25DService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.io.IOException;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/form25d")
+@RequiredArgsConstructor
+public class Form25DController {
+
+    private final Form25DService form25DService;
+
+    @PostMapping("/submit")
+    public ResponseEntity<Form25D> submitForm(
+            @RequestParam String name,
+            @RequestParam String email,
+            @RequestParam Map<String, String> files) {
+
+        Form25D form = new Form25D();
+        form.setName(name);
+        form.setEmail(email);
+
+        try {
+            Form25D savedForm = form25DService.saveForm(form, files);
+            return ResponseEntity.ok(savedForm);
+        } catch (IOException e) {
+            return ResponseEntity.badRequest().body(null);
+        }
+    }
+}
+```
+✅ **This controller allows sending a dynamic number of files without defining each one separately.**  
+
+---
+
+## **API Request Example (Postman)**
+**URL:** `POST http://localhost:8080/api/form25d/submit`  
+**Form-Data (x-www-form-urlencoded or JSON):**
+```json
+{
+  "name": "John Doe",
+  "email": "johndoe@example.com",
+  "identity": "data:application/pdf;base64,JVBERi0xLjQKJc...",
+  "degree": "data:application/pdf;base64,JVBERi0xLjQKJc...",
+  "graduation": "data:application/pdf;base64,JVBERi0xLjQKJc...",
+  "otherDocument": "data:application/pdf;base64,JVBERi0xLjQKJc..."
+}
+```
+
+---
+
+### **✅ Benefits of this Approach**
+1. **Dynamic Handling of Any Number of Files**  
+   - Supports any file type (`identity`, `degree`, `graduation`, etc.) dynamically.  
+
+2. **No If-Else Conditions**  
+   - Uses a `Map<String, String>` to iterate through all uploaded files.  
+
+3. **Database Stores Data Efficiently**  
+   - Uses a `Map<String, String>` (`file_type -> file_path`) in the database.  
+
+4. **Reusable & Scalable**  
+   - New file types can be added without modifying the code.  
+
+---
+
+🚀 **Now, you can upload files dynamically for Form 25D without repeating logic!**  
+Let me know if you need further modifications. 😊
