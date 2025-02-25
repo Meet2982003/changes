@@ -1,0 +1,385 @@
+Sure! Below is the **Spring Boot implementation** of the same **Base64-encoded file upload approach** while ensuring files are saved uniquely and efficiently.  
+
+---
+
+## **🔹 Steps in Implementation**
+1. **Create a database schema** (`Form`, `FileEntity`) with relationships.
+2. **Implement a service to process Base64 files**, validate their size, and store them with UUID filenames.
+3. **Provide a REST API for uploading Base64 files**.
+
+---
+
+## **1️⃣ Database Entities**
+### **`Form` Entity (Holds Form Information)**
+```java
+@Entity
+@Table(name = "forms")
+public class Form {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String formName;
+
+    @OneToMany(mappedBy = "form", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<FileEntity> files = new ArrayList<>();
+}
+```
+
+---
+
+### **`FileEntity` (Stores File Metadata)**
+```java
+@Entity
+@Table(name = "files")
+public class FileEntity {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String fileName;
+    private String filePath; // Stores file location
+    private String fileUuid; // Stores UUID for reference
+
+    @ManyToOne
+    @JoinColumn(name = "form_id", nullable = false)
+    private Form form;
+}
+```
+
+---
+
+## **2️⃣ Service for Processing Base64 Files**
+### **Handles Decoding, Validation, and Saving Files**
+```java
+@Service
+public class FileService {
+
+    @Autowired
+    private FileRepository fileRepository;
+
+    @Autowired
+    private FormRepository formRepository;
+
+    private final String uploadDir = "C:/uploads/documents/"; // Change this as needed
+
+    public List<String> uploadFiles(Long formId, List<String> base64Files) {
+        Form form = formRepository.findById(formId)
+                .orElseThrow(() -> new RuntimeException("Form not found"));
+
+        List<String> uploadedFileIds = new ArrayList<>();
+
+        for (String base64File : base64Files) {
+            try {
+                UUID uuid = UUID.randomUUID();
+                String fileName = uuid + ".pdf";
+                String filePath = uploadDir + fileName;
+
+                // Decode Base64
+                byte[] fileBytes = Base64.getDecoder().decode(base64File.split(",")[1]);
+
+                // Validate File Size (Max 5MB)
+                FileValidator.validateFileSize(fileBytes, 5);
+
+                // Save file to disk
+                File file = new File(filePath);
+                try (OutputStream stream = new FileOutputStream(file)) {
+                    stream.write(fileBytes);
+                }
+
+                // Save file details in DB
+                FileEntity fileEntity = new FileEntity();
+                fileEntity.setFileName(fileName);
+                fileEntity.setFilePath(filePath);
+                fileEntity.setFileUuid(uuid.toString());
+                fileEntity.setForm(form);
+
+                fileRepository.save(fileEntity);
+                uploadedFileIds.add(uuid.toString());
+            } catch (IOException e) {
+                throw new RuntimeException("File upload failed", e);
+            }
+        }
+        return uploadedFileIds;
+    }
+}
+```
+
+---
+
+## **3️⃣ Controller for Uploading Files**
+### **REST API to Handle File Uploads**
+```java
+@RestController
+@RequestMapping("/files")
+public class FileController {
+
+    @Autowired
+    private FileService fileService;
+
+    @PostMapping("/upload/{formId}")
+    public ResponseEntity<List<String>> uploadFiles(
+            @PathVariable Long formId,
+            @RequestBody List<String> base64Files) {
+        List<String> fileIds = fileService.uploadFiles(formId, base64Files);
+        return ResponseEntity.ok(fileIds);
+    }
+}
+```
+- **Accepts Base64 files** in the request body.
+- Calls `uploadFiles()` from the service.
+- Returns a **list of UUIDs** for uploaded files.
+
+---
+
+## **4️⃣ File Validation (Max Size: 5MB)**
+```java
+public class FileValidator {
+    public static void validateFileSize(byte[] fileBytes, int maxSizeMB) {
+        int maxSize = maxSizeMB * 1024 * 1024; // Convert MB to Bytes
+        if (fileBytes.length > maxSize) {
+            throw new RuntimeException("File size exceeds " + maxSizeMB + "MB");
+        }
+    }
+}
+```
+- Ensures uploaded files **don’t exceed 5MB**.
+
+---
+
+## **5️⃣ Fetch Files by Form**
+### **Controller to Retrieve Uploaded Files**
+```java
+@GetMapping("/form/{formId}")
+public ResponseEntity<List<FileEntity>> getFilesByForm(@PathVariable Long formId) {
+    List<FileEntity> files = fileService.getFilesByFormId(formId);
+    return ResponseEntity.ok(files);
+}
+```
+
+### **Service to Retrieve Files**
+```java
+public List<FileEntity> getFilesByFormId(Long formId) {
+    return fileRepository.findByFormId(formId);
+}
+```
+
+### **Repository**
+```java
+public interface FileRepository extends JpaRepository<FileEntity, Long> {
+    List<FileEntity> findByFormId(Long formId);
+}
+```
+- Fetches **all files for a given form**.
+
+---
+
+## **6️⃣ How Data Will Be Stored**
+Instead of **28 columns**, each file is stored **as a row** in `files` table.
+
+### **`forms` Table**
+| id | form_name |
+|----|----------|
+| 1  | Form A   |
+| 2  | Form B   |
+
+### **`files` Table**
+| id | file_name | file_path | file_uuid | form_id |
+|----|----------|-----------|-----------|---------|
+| 1  | a1.pdf   | /uploads/a1.pdf | abc-123 | 1 |
+| 2  | b1.pdf   | /uploads/b1.pdf | xyz-789 | 1 |
+
+---
+
+## **Final Answer**
+💡 **Instead of creating 28 columns**, we store **each file as a row** in `files` table.  
+📂 Files are saved **on disk** (`C:/uploads/documents/`).  
+🔐 UUIDs **ensure uniqueness**.  
+✅ **Spring Boot handles multiple file uploads efficiently**. 🚀
+
+
+
+//using whole code with controller
+
+
+Here’s the modified version of your **Spring Boot controller** that integrates **Base64 file handling** while maintaining your existing structure.  
+
+---
+
+## **🔹 Changes & Enhancements**
+1. **Decodes Base64 files** from `ManageIGCdocs`.
+2. **Saves files on disk** with UUID-based filenames.
+3. **Stores file metadata** in the database.
+4. **Handles errors properly** for better debugging.
+
+---
+
+## **1️⃣ Modified Controller**
+```java
+@RestController
+@RequestMapping("/igc-docs")
+public class ManageIGCDocsController {
+
+    @Autowired
+    private ManageIGCDocsService manageIGCDocsService;
+
+    @PostMapping("/save")
+    public ResponseEntity<EncryptedResponse> saveIGCdocs(@RequestBody EncryptedRequest req, HttpServletRequest request) {
+        System.out.println("called saveIGCdocs");
+        try {
+            var docs = req.bodyAs(ManageIGCdocs.class);
+            System.out.println("controller: " + docs.getTitle());
+
+            // Save documents
+            manageIGCDocsService.saveIgcDocs(docs);
+
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(new EncryptedResponse("Data saved successfully."));
+        } catch (DataIntegrityViolationException e) {
+            System.out.println("data exception: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new EncryptedResponse("Same data already exists."));
+        } catch (Exception e) {
+            System.out.println("exception: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new EncryptedResponse("An error occurred."));
+        }
+    }
+}
+```
+- Calls `saveIgcDocs(docs)`, which now processes **Base64 file uploads**.
+
+---
+
+## **2️⃣ Updated Service (Handles File Storage)**
+```java
+@Service
+public class ManageIGCDocsService {
+
+    @Autowired
+    private FileRepository fileRepository;
+
+    @Autowired
+    private ManageIGCDocsRepository manageIGCDocsRepository;
+
+    private final String fileServerPath = "C:/uploads/documents"; // Change as needed
+
+    public void saveIgcDocs(ManageIGCdocs docs) {
+        List<String> uploadedFileIds = new ArrayList<>();
+
+        for (String uploadDocument : docs.getUploadDocuments()) {
+            try {
+                UUID uuid = UUID.randomUUID();
+                String filePath = fileServerPath + "/" + uuid + ".pdf";
+
+                // Decode Base64 string
+                byte[] fileBytes = Base64.getDecoder().decode(uploadDocument.split(",")[1]);
+
+                // Validate File Size (Max 5MB)
+                FileValidator.validateFileSize(fileBytes, 5);
+
+                // Save file to disk
+                File file = new File(filePath);
+                try (OutputStream stream = new FileOutputStream(file)) {
+                    stream.write(fileBytes);
+                }
+
+                // Save file details in DB
+                FileEntity fileEntity = new FileEntity();
+                fileEntity.setFileName(uuid + ".pdf");
+                fileEntity.setFilePath(filePath);
+                fileEntity.setFileUuid(uuid.toString());
+                fileEntity.setManageIGCDocs(docs); // Link to parent form
+
+                fileRepository.save(fileEntity);
+                uploadedFileIds.add(uuid.toString());
+            } catch (IOException e) {
+                throw new RuntimeException("File upload failed", e);
+            }
+        }
+    }
+}
+```
+- **Iterates over all Base64 files**, decodes them, saves them to disk, and then stores metadata in the database.
+
+---
+
+## **3️⃣ File Entity (Database Storage)**
+```java
+@Entity
+@Table(name = "files")
+public class FileEntity {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String fileName;
+    private String filePath; // File storage location
+    private String fileUuid; // Unique identifier
+
+    @ManyToOne
+    @JoinColumn(name = "doc_id", nullable = false)
+    private ManageIGCdocs manageIGCDocs;
+}
+```
+
+---
+
+## **4️⃣ ManageIGCdocs Entity**
+```java
+@Entity
+@Table(name = "manage_igc_docs")
+public class ManageIGCdocs {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String title;
+
+    @OneToMany(mappedBy = "manageIGCDocs", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<FileEntity> files = new ArrayList<>();
+}
+```
+- **Each document (form) can store multiple files**.
+
+---
+
+## **5️⃣ File Validator (Max 5MB)**
+```java
+public class FileValidator {
+    public static void validateFileSize(byte[] fileBytes, int maxSizeMB) {
+        int maxSize = maxSizeMB * 1024 * 1024; // Convert MB to Bytes
+        if (fileBytes.length > maxSize) {
+            throw new RuntimeException("File size exceeds " + maxSizeMB + "MB");
+        }
+    }
+}
+```
+
+---
+
+## **6️⃣ Fetch Files by Document**
+```java
+@GetMapping("/docs/{docId}/files")
+public ResponseEntity<List<FileEntity>> getFilesByDoc(@PathVariable Long docId) {
+    List<FileEntity> files = fileRepository.findByManageIGCDocsId(docId);
+    return ResponseEntity.ok(files);
+}
+```
+
+### **Repository**
+```java
+public interface FileRepository extends JpaRepository<FileEntity, Long> {
+    List<FileEntity> findByManageIGCDocsId(Long docId);
+}
+```
+
+---
+
+## **✅ Final Outcome**
+- 📂 **28 files are stored as rows**, not 28 columns.
+- 🔐 **UUID-based filenames prevent duplication**.
+- 🚀 **Efficient file handling** with Base64 decoding.
+- 🗄️ **Files saved on disk, metadata stored in DB**.
+
+This approach **scales well** without database bloat. 🚀
